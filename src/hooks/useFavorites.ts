@@ -6,6 +6,7 @@ export interface Favorite {
   words: string[];
   system: 'do-re-major' | 'major';
   createdAt: number;
+  isCustomPeg?: boolean; // User-defined peg (e.g., "doll" for 16)
 }
 
 const STORAGE_KEY = 'do-re-major-favorites';
@@ -61,6 +62,33 @@ export function useFavorites() {
     });
   }, []);
 
+  const addCustomPeg = useCallback((digits: string, word: string, system: 'do-re-major' | 'major') => {
+    const newFavorite: Favorite = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      digits,
+      words: [word],
+      system,
+      createdAt: Date.now(),
+      isCustomPeg: true,
+    };
+
+    setFavorites(prev => {
+      // Check if peg with same digits/word/system already exists
+      const exists = prev.some(
+        f => f.isCustomPeg && 
+             f.digits === digits && 
+             f.words[0] === word &&
+             f.system === system
+      );
+      
+      if (exists) return prev;
+
+      const updated = [newFavorite, ...prev];
+      saveFavorites(updated);
+      return updated;
+    });
+  }, []);
+
   const removeFavorite = useCallback((id: string) => {
     setFavorites(prev => {
       const updated = prev.filter(f => f.id !== id);
@@ -82,11 +110,18 @@ export function useFavorites() {
     saveFavorites([]);
   }, []);
 
+  // Get custom pegs for a specific system
+  const getCustomPegs = useCallback((system: 'do-re-major' | 'major') => {
+    return favorites.filter(f => f.isCustomPeg && f.system === system);
+  }, [favorites]);
+
   return {
     favorites,
     addFavorite,
+    addCustomPeg,
     removeFavorite,
     isFavorite,
     clearAllFavorites,
+    getCustomPegs,
   };
 }

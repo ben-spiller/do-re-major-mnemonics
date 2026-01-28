@@ -16,8 +16,9 @@ const Index = () => {
   const [system, setSystem] = useState<MnemonicSystem>('do-re-major');
   const [activeTab, setActiveTab] = useState('search');
 
-  const results = useMnemonicMatcher(digits, system);
-  const { favorites, addFavorite, removeFavorite, isFavorite } = useFavorites();
+  const { favorites, addFavorite, addCustomPeg, removeFavorite, isFavorite, getCustomPegs } = useFavorites();
+  const customPegs = getCustomPegs(system);
+  const results = useMnemonicMatcher(digits, system, customPegs);
 
   const handleFavorite = (words: string[]) => {
     const cleanDigits = digits.replace(/\D/g, '');
@@ -107,6 +108,8 @@ const Index = () => {
             <FavoritesList
               favorites={favorites}
               onRemove={removeFavorite}
+              onAddCustomPeg={addCustomPeg}
+              currentSystem={system}
             />
           </TabsContent>
         </Tabs>

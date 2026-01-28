@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import { wordList, WordEntry } from '@/lib/wordList';
+import { wordList } from '@/lib/wordList';
 import { mnemonicSystems, MnemonicSystem } from '@/lib/mnemonicSystems';
+import { Favorite } from '@/hooks/useFavorites';
 
 export interface MatchResult {
   words: string[];
@@ -8,10 +9,11 @@ export interface MatchResult {
   digitsCovered: number[];
   isFullMatch: boolean;
   combinedFrequency: number;
+  isCustomPeg?: boolean;
 }
 
 // Convert a word to its digit sequence based on the mnemonic system
-function wordToDigits(word: string, system: MnemonicSystem): string {
+export function wordToDigits(word: string, system: MnemonicSystem): string {
   const config = mnemonicSystems[system];
   const lowerWord = word.toLowerCase();
   let digits = '';
@@ -19,6 +21,12 @@ function wordToDigits(word: string, system: MnemonicSystem): string {
 
   while (i < lowerWord.length) {
     let matched = false;
+    
+    // Skip consecutive identical consonants (e.g., ll, ss, tt) - treat as single sound
+    if (i > 0 && lowerWord[i] === lowerWord[i - 1] && config.consonantToDigit[lowerWord[i]] !== undefined) {
+      i++;
+      continue;
+    }
     
     // Try matching multi-character consonant patterns first (longest first)
     const multiPatterns = ['sch', 'tch', 'dge', 'ck', 'ph', 'th', 'ch', 'sh', 'sc', 'ss', 'ge', 'dg'];
@@ -107,10 +115,59 @@ function findPrefixMatches(
   });
 }
 
+// Check if two words are too similar (share the same root/stem)
+function areSimilar(word1: string, word2: string): boolean {
+  const w1 = word1.toLowerCase();
+  const w2 = word2.toLowerCase();
+  
+  // Exact match
+  if (w1 === w2) return true;
+  
+  // One is prefix of other (e.g., "run" and "running")
+  if (w1.startsWith(w2) || w2.startsWith(w1)) return true;
+  
+  // Check common suffix variations
+  const suffixes = ['s', 'es', 'ed', 'ing', 'er', 'est', 'ly', 'tion', 'ness'];
+  for (const suffix of suffixes) {
+    const base1 = w1.endsWith(suffix) ? w1.slice(0, -suffix.length) : w1;
+    const base2 = w2.endsWith(suffix) ? w2.slice(0, -suffix.length) : w2;
+    if (base1 === base2 || base1 === w2 || base2 === w1) return true;
+  }
+  
+  return false;
+}
+
+// Filter results to avoid similar words
+function diversifyResults(results: MatchResult[], maxResults: number): MatchResult[] {
+  const diversified: MatchResult[] = [];
+  const usedWords = new Set<string>();
+  
+  for (const result of results) {
+    // Check if any word in this result is too similar to already used words
+    const hasSimilar = result.words.some(word => {
+      for (const usedWord of usedWords) {
+        if (areSimilar(word, usedWord)) return true;
+      }
+      return false;
+    });
+    
+    // Custom pegs always get included
+    if (!hasSimilar || result.isCustomPeg) {
+      diversified.push(result);
+      result.words.forEach(w => usedWords.add(w.toLowerCase()));
+    }
+    
+    if (diversified.length >= maxResults) break;
+  }
+  
+  return diversified;
+}
+
 // Find optimal word combinations using dynamic programming
 function findWordCombinations(
   targetDigits: string,
   wordCache: Map<string, { word: string; digits: string; frequency: number }>,
+  customPegs: Favorite[],
   maxResults: number = 20
 ): MatchResult[] {
   if (!targetDigits) return [];
@@ -118,9 +175,27 @@ function findWordCombinations(
   const results: MatchResult[] = [];
   const seen = new Set<string>();
   
-  // First, find exact single-word matches
+  // First, check for custom pegs that match
+  for (const peg of customPegs) {
+    if (peg.digits === targetDigits) {
+      const key = `peg:${peg.words.join('+')}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push({
+          words: peg.words,
+          digits: targetDigits,
+          digitsCovered: Array.from({ length: targetDigits.length }, (_, i) => i),
+          isFullMatch: true,
+          combinedFrequency: -1000, // Highest priority
+          isCustomPeg: true,
+        });
+      }
+    }
+  }
+  
+  // Then, find exact single-word matches
   const exactMatches = findMatchingWords(targetDigits, wordCache);
-  for (const match of exactMatches.slice(0, 5)) {
+  for (const match of exactMatches.slice(0, 8)) {
     const key = match.word;
     if (!seen.has(key)) {
       seen.add(key);
@@ -134,12 +209,21 @@ function findWordCombinations(
     }
   }
   
+  // Build a map of custom peg words for quick lookup during combinations
+  const pegDigitsMap = new Map<string, { word: string; digits: string }>();
+  for (const peg of customPegs) {
+    if (targetDigits.startsWith(peg.digits) && peg.words.length === 1) {
+      pegDigitsMap.set(peg.digits, { word: peg.words[0], digits: peg.digits });
+    }
+  }
+  
   // Then find combinations using greedy approach
   const findCombinationsRecursive = (
     remaining: string,
     startIndex: number,
     currentWords: string[],
     currentFrequency: number,
+    hasCustomPeg: boolean,
     depth: number = 0
   ) => {
     if (remaining.length === 0) {
@@ -151,42 +235,80 @@ function findWordCombinations(
           digits: targetDigits,
           digitsCovered: Array.from({ length: targetDigits.length }, (_, i) => i),
           isFullMatch: true,
-          combinedFrequency: currentFrequency,
+          combinedFrequency: hasCustomPeg ? currentFrequency - 500 : currentFrequency,
+          isCustomPeg: hasCustomPeg,
         });
       }
       return;
     }
     
-    if (depth > 4 || results.length >= maxResults * 2) return; // Limit depth and results
+    if (depth > 4 || results.length >= maxResults * 3) return;
+    
+    // First try custom pegs that match the remaining digits
+    for (const [pegDigits, pegData] of pegDigitsMap) {
+      if (remaining.startsWith(pegDigits)) {
+        findCombinationsRecursive(
+          remaining.slice(pegDigits.length),
+          startIndex + pegDigits.length,
+          [...currentWords, pegData.word],
+          currentFrequency - 500,
+          true,
+          depth + 1
+        );
+      }
+    }
     
     const prefixMatches = findPrefixMatches(remaining, wordCache);
     
-    for (const match of prefixMatches.slice(0, 10)) {
+    for (const match of prefixMatches.slice(0, 8)) {
       findCombinationsRecursive(
         remaining.slice(match.digits.length),
         startIndex + match.digits.length,
         [...currentWords, match.word],
         currentFrequency + match.frequency,
+        hasCustomPeg,
         depth + 1
       );
     }
   };
   
-  findCombinationsRecursive(targetDigits, 0, [], 0, 0);
+  findCombinationsRecursive(targetDigits, 0, [], 0, false, 0);
   
-  // Sort results: fewer words first, then by combined frequency
+  // Sort results: custom pegs first, then fewer words, then by combined frequency
   results.sort((a, b) => {
+    // Custom pegs always first
+    if (a.isCustomPeg && !b.isCustomPeg) return -1;
+    if (!a.isCustomPeg && b.isCustomPeg) return 1;
+    
     if (a.words.length !== b.words.length) {
       return a.words.length - b.words.length;
     }
     return a.combinedFrequency - b.combinedFrequency;
   });
   
-  // Add some common partial matches for variety
+  // Add some partial matches for variety
   if (results.length < maxResults) {
+    // Check for partial custom pegs
+    for (const peg of customPegs) {
+      if (targetDigits.startsWith(peg.digits) && peg.digits.length < targetDigits.length) {
+        const key = `partial-peg:${peg.words.join('+')}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          results.push({
+            words: peg.words,
+            digits: peg.digits,
+            digitsCovered: Array.from({ length: peg.digits.length }, (_, i) => i),
+            isFullMatch: false,
+            combinedFrequency: -500,
+            isCustomPeg: true,
+          });
+        }
+      }
+    }
+    
     const prefixMatches = findPrefixMatches(targetDigits, wordCache);
     for (const match of prefixMatches.slice(0, 10)) {
-      if (results.length >= maxResults) break;
+      if (results.length >= maxResults * 2) break;
       
       const key = `partial:${match.word}`;
       if (!seen.has(key) && match.digits.length < targetDigits.length) {
@@ -202,18 +324,19 @@ function findWordCombinations(
     }
   }
   
-  return results.slice(0, maxResults);
+  // Diversify results to avoid similar words
+  return diversifyResults(results, maxResults);
 }
 
-export function useMnemonicMatcher(digits: string, system: MnemonicSystem) {
+export function useMnemonicMatcher(digits: string, system: MnemonicSystem, customPegs: Favorite[] = []) {
   const wordCache = useMemo(() => buildWordDigitCache(system), [system]);
   
   const results = useMemo(() => {
     const cleanDigits = digits.replace(/\D/g, '');
     if (!cleanDigits) return [];
     
-    return findWordCombinations(cleanDigits, wordCache, 20);
-  }, [digits, wordCache]);
+    return findWordCombinations(cleanDigits, wordCache, customPegs, 20);
+  }, [digits, wordCache, customPegs]);
   
   return results;
 }
