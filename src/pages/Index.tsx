@@ -89,9 +89,6 @@ const Index = () => {
               <ModeToggle system={system} onSystemChange={setSystem} />
             </section>
 
-            {/* Mapping Reference */}
-            <MappingChart system={system} />
-
             {/* Results */}
             <section>
               <ResultsList
@@ -102,6 +99,10 @@ const Index = () => {
                 isFavorite={checkIsFavorite}
               />
             </section>
+
+            {/* Mapping Reference */}
+            <MappingChart system={system} />
+
           </TabsContent>
 
           <TabsContent value="saved" className="mt-0">
