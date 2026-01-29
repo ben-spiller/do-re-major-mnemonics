@@ -11,6 +11,81 @@
  * - sensorimotor.csv (From Lancaster University)
  */
 
+/*
+File format definition:
+
+### Dictionary File Format: `dictionary-*.json`
+
+The generated file is a **minified JSON Object** structured as a **Reverse Phonetic Map**. Instead of words being the keys, the keys are **Bridge Codes**.
+
+* **Key (Bridge Code):** A string of uppercase ASCII characters representing the phonetic consonant skeleton of a word (e.g., `D`, `N`, `M`, `R`, `L`, `J`, `K`, `F`, `P`, `S`).
+* **Value:** An array of exactly 0 to 15 lowercase strings (words). These words are pre-sorted by "Mnemonic Quality"—favoring concrete, visual nouns that start with the target sound.
+
+**Example Entry:**
+
+```json
+{
+  "DK": ["dog", "duck", "deck", "dock", "dagger"],
+  "PL": ["apple", "pill", "ball", "bell", "pool"]
+}
+
+```
+
+---
+
+### Lookup Algorithm (For AI Implementation)
+
+To find words for a specific number in a given mnemonic system, an AI or system should follow these three steps:
+
+#### 1. Define the System Map
+
+Create a mapping from the **Bridge Code Characters** to the **Target Digits** for the specific system being used.
+
+| Bridge Char | Standard Major | Do-Re-Major (Example) |
+| --- | --- | --- |
+| **D** (t/d) | 1 | 2 |
+| **N** (n) | 2 | 6 |
+| **K** (k/g) | 7 | 1 |
+
+#### 2. Generate Search Keys
+
+Since multiple Bridge Codes can result in the same digit sequence, the algorithm must identify all matching keys.
+
+* **Input:** A digit string (e.g., `"21"`).
+* **Process:** Iterate through all keys in `dictionary.json`. For each key, translate its characters into digits using the System Map.
+* **Match:** If the translated digits equal the input string, add that key's word list to the results.
+
+#### 3. Handle Rhoticity (UK Specific)
+
+To account for non-rhotic (Standard UK) vs. rhotic accents:
+
+* **Rhotic Search:** Match the digits exactly.
+* **Non-Rhotic Search:** If a Bridge Code ends in `R` (e.g., `KR`), treat that `R` as optional. A search for digit `7` (K) should return words from both the `K` key and the `KR` key (like "Car").
+
+---
+
+### Implementation Pseudocode
+
+```typescript
+function findMnemonics(digits, systemMap, dictionary) {
+  let matches = [];
+  
+  for (const [bridgeCode, words] of Object.entries(dictionary)) {
+    const numericValue = bridgeCode.split('')
+                                   .map(char => systemMap[char])
+                                   .join('');
+                                   
+    if (numericValue === digits) {
+      matches.push(...words);
+    }
+  }
+  return matches; // Optionally re-sort or limit to top 15 total
+}
+
+```
+
+*/
+
 import * as fs from 'fs';
 
 /**
