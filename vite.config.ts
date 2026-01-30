@@ -5,13 +5,15 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  server: {
-    host: "::",
-    port: 8080,
-    hmr: {
-      overlay: false,
-    },
+  // Use a relative base for production so assets are referenced relative to
+  // the HTML file. This avoids hardcoding the repo name and works both for
+  // GitHub Pages project sites and other static hosts where the app is not
+  // served from the domain root.
+  base: mode === 'production' ? './' : '/',
+  define: {
+    __BUILD_TIMESTAMP__: JSON.stringify(new Date().toISOString().replaceAll("T", " ").replaceAll("Z", "")),
   },
+
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {
