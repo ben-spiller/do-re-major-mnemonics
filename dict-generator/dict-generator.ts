@@ -30,6 +30,8 @@ const INPUT_FILES = {
     "sensorimotor": "Lancaster_sensorimotor_norms_for_39707_words.csv"
 }
 
+const OUTPUT_FILE = '../public/dictionary-en_GB.json';
+
 /*
 Output file format definition:
 
@@ -105,20 +107,14 @@ function findMnemonics(digits, systemMap, dictionary) {
 
 */
 
-/**
- * BRIDGE CODE DEFINITION:
- * A Bridge Code is an intermediate phonetic string used to decouple sounds from digits.
- * It allows the same dictionary to work for Standard Major, Do-Re-Major, etc.
- * * Example: Word "Dog"
- * Phonetics: [D, AO, G]
- * Bridge Code: "DK" (D for t/d, K for k/g)
- * Standard Mapping: D->1, K->7 = "17"
- * Do-Re-Major Mapping: D->2, K->1 = "21"
- */
 
+const COPYRIGHT_NOTICE = "Copyright (C) Ben Spiller 2026-present ; Commercial use of this dictionary is not permitted ; See https://github.com/ben-spiller/do-re-major-mnemonics for licensing information about this dictionary and the opensource data used to help created it";
 
-
-
+// Standard Major System mapping used ONLY for calculating coverage statistics
+const STATS_MAP: Record<string, string> = {
+    'D': '1', 'N': '2', 'M': '3', 'R': '4', 'L': '5', 
+    'J': '6', 'K': '7', 'F': '8', 'P': '9', 'S': '0'
+};
 
 const PHONETIC_MAP: Record<string, string> = {
     'T': 'D', 'D': 'D',
@@ -135,28 +131,19 @@ interface WordEntry {
     score: number;
 }
 
-/**
- * Universal parser that handles Tabs/Commas and cleans up whitespace/quotes
- */
 function parseDataFile(filename: string) {
-    if (!fs.existsSync(filename)) {
-        throw new Error(`CRITICAL: Required file "${filename}" not found.`);
-    }
-
+    if (!fs.existsSync(filename)) throw new Error(`CRITICAL: File "${filename}" not found.`);
     const content = fs.readFileSync(filename, 'utf-8');
     const lines = content.split(/\r?\n/).filter(l => l.trim() !== '');
     if (lines.length === 0) return [];
 
-    const firstLine = lines[0];
-    const delimiter = firstLine.includes('\t') ? '\t' : (firstLine.includes(';') ? ';' : ',');
+    const delimiter = lines[0].includes('\t') ? '\t' : (lines[0].includes(';') ? ';' : ',');
     const headers = lines[0].split(delimiter).map(h => h.trim().replace(/^"|"$/g, ''));
     
     return lines.slice(1).map(line => {
         const values = line.split(delimiter).map(v => v.trim().replace(/^"|"$/g, ''));
         const obj: any = { _rawValues: values };
-        headers.forEach((h, i) => {
-            if (values[i] !== undefined) obj[h] = values[i];
-        });
+        headers.forEach((h, i) => { if (values[i] !== undefined) obj[h] = values[i]; });
         return obj;
     });
 }
@@ -167,54 +154,47 @@ function runGenerator() {
 
     try {
         const rankingData: Record<string, { concreteness: number, visual: number, haptic: number }> = {};
-        let concCount = 0;
-        let sensorCount = 0;
+        let counts = { conc: 0, sensor: 0, britTotal: 0, britMapped: 0 };
 
-        // 1. Load Concreteness Data
-        console.log(`--- Loading Concreteness: ${INPUT_FILES.concreteness}`);
-        const concRows = parseDataFile(INPUT_FILES.concreteness);
-        concRows.forEach(row => {
+        // 1. Load Ranking Data
+        parseDataFile(INPUT_FILES.concreteness).forEach(row => {
             const word = (row.Word || "").toLowerCase();
             const score = parseFloat(row['Conc.M']);
             if (word && !isNaN(score)) {
                 rankingData[word] = { concreteness: score, visual: 0, haptic: 0 };
-                concCount++;
+                counts.conc++;
             }
         });
-        console.log(`    ✅ Successfully indexed ${concCount} concreteness ratings.`);
+        console.log(`    ✅ Loaded ${counts.conc} concreteness ratings.`);
 
-        // 2. Load Sensorimotor Data
-        console.log(`--- Loading Sensorimotor: ${INPUT_FILES.sensorimotor}`);
-        const sensorRows = parseDataFile(INPUT_FILES.sensorimotor);
-        sensorRows.forEach(row => {
+        parseDataFile(INPUT_FILES.sensorimotor).forEach(row => {
             const word = (row.Word || "").toLowerCase();
             if (rankingData[word]) {
                 rankingData[word].visual = parseFloat(row['Visual.mean']) || 0;
                 rankingData[word].haptic = parseFloat(row['Hand_Arm.mean']) || 0;
-                sensorCount++;
+                counts.sensor++;
             }
         });
-        console.log(`    ✅ Successfully matched ${sensorCount} sensorimotor ratings.`);
+        console.log(`    ✅ Matched ${counts.sensor} sensorimotor ratings.`);
 
-        // 3. Process Britfone Phonetics
+        // 2. Process Phonetics
         const bridgeDict: Record<string, WordEntry[]> = {};
-        console.log(`--- Processing Phonetics: ${INPUT_FILES.britfone}`);
-        
-        const britfoneRows = parseDataFile(INPUT_FILES.britfone);
-        let britfoneTotal = 0;
-        let britfoneMapped = 0;
-
-        britfoneRows.forEach(row => {
-            britfoneTotal++;
-            // Try explicit headers, fall back to index 0 (word) and index 1 (phonemes)
+        parseDataFile(INPUT_FILES.britfone).forEach(row => {
+            counts.britTotal++;
             const rawWord = row['Word'] || row['word'] || row._rawValues[0];
             const phoneticsRaw = row['Phonemes'] || row['phonemes'] || row._rawValues[1];
-            
             if (!rawWord || !phoneticsRaw) return;
 
             const word = rawWord.toLowerCase();
             const phonetics = phoneticsRaw.trim().split(/\s+/);
 
+            /**
+             * BRIDGE CODE LOGIC:
+             * A Bridge Code is an intermediate phonetic string (e.g., "DK") that 
+             * represents the consonant skeleton of a word. By storing "DK" 
+             * instead of "17", we can dynamically map the same data to 
+             * different systems (Major vs. Do-Re-Major) at runtime.
+             */
             let bridgeCode = "";
             let firstSoundIsConsonant = false;
             let foundFirstConsonant = false;
@@ -222,7 +202,6 @@ function runGenerator() {
             for (let i = 0; i < phonetics.length; i++) {
                 const sound = phonetics[i].replace(/[0-9]/g, '').toUpperCase();
                 const mapped = PHONETIC_MAP[sound];
-
                 if (mapped) {
                     bridgeCode += mapped;
                     if (!foundFirstConsonant) {
@@ -232,14 +211,29 @@ function runGenerator() {
                 }
             }
 
-            // Skip words with no encodable consonants (e.g., "a", "eye", "ooh")
             if (!bridgeCode) return;
-            britfoneMapped++;
+            counts.britMapped++;
 
             const norms = rankingData[word] || { concreteness: 1.5, visual: 1.5, haptic: 1.5 };
             let score = (norms.concreteness * 5) + (norms.visual * 2) + (norms.haptic * 3);
             
+            // PREFERENCE 1: Start with the correct sound
             if (firstSoundIsConsonant) score += 100;
+
+            // PREFERENCE 2: Spelling-Phonetic Match
+            // We strip vowels (including 'y' as it acts as a vowel here) to find spelling consonants.
+            // This penalizes words like "Teeth" (T, T, H in spelling vs 1 sound) 
+            // or "Door" (D, R in spelling vs 1 sound in non-rhotic).
+            const spellingConsonants = word.replace(/[aeiouy]/g, '').length;
+            const mismatchPenalty = Math.abs(spellingConsonants - bridgeCode.length);
+            
+            if (mismatchPenalty === 0) {
+                score += 30; // Boost perfect phonetic matches (e.g., "Toe")
+            } else {
+                score -= (mismatchPenalty * 25); // Heavy penalty for ambiguous spellings
+            }
+
+            // Other penalties
             if (bridgeCode.endsWith('R')) score -= 15;
             if (word.length <= 2) score -= 10;
 
@@ -249,42 +243,42 @@ function runGenerator() {
             }
         });
 
-        console.log(`    ✅ Processed ${britfoneTotal} words; ${britfoneMapped} yielded bridge codes.`);
-
-        // 4. Finalize and Filter Top 15
-        const finalOutput: Record<string, string[]> = {};
-        let totalMnemonics = 0;
+        // 3. Finalize and Analyze Coverage
+        const finalOutput: any = { "_metadata": COPYRIGHT_NOTICE };
+        const coverageStats: Record<number, Set<string>> = {};
 
         for (const code in bridgeDict) {
-            const sorted = bridgeDict[code]
+            const len = code.length;
+            if (!coverageStats[len]) coverageStats[len] = new Set();
+            
+            const digits = code.split('').map(c => STATS_MAP[c]).join('');
+            coverageStats[len].add(digits);
+
+            finalOutput[code] = bridgeDict[code]
                 .sort((a, b) => b.score - a.score)
                 .slice(0, 15)
                 .map(e => e.word);
-            
-            finalOutput[code] = sorted;
-            totalMnemonics += sorted.length;
         }
 
-        const outPath = 'dictionary.json';
-        fs.writeFileSync(outPath, JSON.stringify(finalOutput));
+        fs.writeFileSync(OUTPUT_FILE, JSON.stringify(finalOutput));
 
-        // 5. Statistics & Performance
-        const endTime = Date.now();
-        const durationSeconds = (endTime - startTime) / 1000;
-        const fileSizeKB = Math.round(fs.statSync(outPath).size / 1024);
-        const totalKeys = Object.keys(finalOutput).length;
-
+        // 4. Statistics Dashboard
         console.log("\n" + "=".repeat(40));
         console.log("📊 GENERATION STATISTICS");
         console.log("-".repeat(40));
-        console.log(`⏱️ Execution Time:     ${durationSeconds.toFixed(2)}s`);
+        
+        [1, 2, 3].forEach(len => {
+            const count = coverageStats[len]?.size || 0;
+            const possible = Math.pow(10, len);
+            const percent = ((count / possible) * 100).toFixed(1);
+            console.log(`Length ${len} Coverage:   ${percent}% (${count}/${possible})`);
+        });
+
+        const fileSizeKB = Math.round(fs.statSync(OUTPUT_FILE).size / 1024);
+        console.log("-".repeat(40));
         console.log(`💾 File Size:           ${fileSizeKB} KB`);
-        console.log(`🔑 Total Sound Keys:    ${totalKeys}`);
-        console.log(`📝 Total Mnemonics:     ${totalMnemonics}`);
-        console.log(`📈 Avg. Words per Key:  ${(totalMnemonics / (totalKeys || 1)).toFixed(2)}`);
-        console.log(`🎯 Match Rate:          ${((britfoneMapped / britfoneTotal) * 100).toFixed(1)}%`);
+        console.log(`⏱️ Execution Time:     ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
         console.log("=".repeat(40));
-        console.log(`✅ Success! Data written to ${outPath}`);
 
     } catch (error: any) {
         console.error(`\n❌ SCRIPT ERROR: ${error.message}`);
