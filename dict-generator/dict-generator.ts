@@ -1,109 +1,11 @@
-
-/**
- * Standalone script for generating the dictionary. Builds a derived work using  
- * some opensource third party data.
- * 
- * HOW TO RUN:
- * 1. Ensure you have Node.js installed.
- * 2. Download input files as described in INPUT_FILES
- * 2. Run: npx ts-node dict-generator.ts
- * 
- */
-
-/**
- * ATTRIBUTIONS & LICENSES:
-- Britfone
-  MIT License
-  Copyright (c) by 2017 Jose Llarena
-  https://github.com/JoseLlarena/Britfone/blob/master/britfone.main.3.0.1.csv
-- Concreteness Norms: Brysbaert et al. (2014) (CC BY-NC 4.0).
- * - Lancaster Sensorimotor Norms: Lynott et al. (2020), Lancaster University (CC BY 4.0). From paper by Lynott, D. Connell, L. Brysbaert, M., Brand, J., & Carney. J. The Lancaster Sensorimotor Norms: Multidimensional measures of Perceptual and Action Strength for 40,000 English words.  
- *   from https://osf.io/48wsc/download
- * See: https://creativecommons.org/licenses/by-nc/4.0/deed.en
- *      https://creativecommons.org/licenses/by/4.0/
- * For non-commercial use only. 
- */
-
-/*
-Output file format definition:
-
-### Dictionary File Format: `dictionary-*.json`
-
-The generated file is a **minified JSON Object** structured as a **Reverse Phonetic Map**. Instead of words being the keys, the keys are **Bridge Codes**.
-
-* **Key (Bridge Code):** A string of uppercase ASCII characters representing the phonetic consonant skeleton of a word (e.g., `D`, `N`, `M`, `R`, `L`, `J`, `K`, `F`, `P`, `S`).
-* **Value:** An array of exactly 0 to 15 lowercase strings (words). These words are pre-sorted by "Mnemonic Quality"—favoring concrete, visual nouns that start with the target sound.
-
-**Example Entry:**
-
-```json
-{
-  "DK": ["dog", "duck", "deck", "dock", "dagger"],
-  "PL": ["apple", "pill", "ball", "bell", "pool"]
-}
-
-```
-
----
-
-### Lookup Algorithm (For AI Implementation)
-
-To find words for a specific number in a given mnemonic system, an AI or system should follow these three steps:
-
-#### 1. Define the System Map
-
-Create a mapping from the **Bridge Code Characters** to the **Target Digits** for the specific system being used.
-
-| Bridge Char | Standard Major | Do-Re-Major (Example) |
-| --- | --- | --- |
-| **D** (t/d) | 1 | 2 |
-| **N** (n) | 2 | 6 |
-| **K** (k/g) | 7 | 1 |
-
-#### 2. Generate Search Keys
-
-Since multiple Bridge Codes can result in the same digit sequence, the algorithm must identify all matching keys.
-
-* **Input:** A digit string (e.g., `"21"`).
-* **Process:** Iterate through all keys in `dictionary.json`. For each key, translate its characters into digits using the System Map.
-* **Match:** If the translated digits equal the input string, add that key's word list to the results.
-
-#### 3. Handle Rhoticity (UK Specific)
-
-To account for non-rhotic (Standard UK) vs. rhotic accents:
-
-* **Rhotic Search:** Match the digits exactly.
-* **Non-Rhotic Search:** If a Bridge Code ends in `R` (e.g., `KR`), treat that `R` as optional. A search for digit `7` (K) should return words from both the `K` key and the `KR` key (like "Car").
-
----
-
-### Implementation Pseudocode
-
-```typescript
-function findMnemonics(digits, systemMap, dictionary) {
-  let matches = [];
-  
-  for (const [bridgeCode, words] of Object.entries(dictionary)) {
-    const numericValue = bridgeCode.split('')
-                                   .map(char => systemMap[char])
-                                   .join('');
-                                   
-    if (numericValue === digits) {
-      matches.push(...words);
-    }
-  }
-  return matches; // Optionally re-sort or limit to top 15 total
-}
-
-```
-
-*/
-
-
 /**
  * HOW TO RUN:
  * 1. Ensure Node.js is installed.
  * 2. Save as 'generate.ts' and run: npx ts-node generate.ts
+ * * ATTRIBUTIONS & LICENSES:
+ * - Britfone: Created by Jose Llarena (MIT License). 
+ * - Concreteness Norms: Brysbaert et al. (2014) (CC BY-NC 4.0).
+ * - Sensorimotor Norms: Lynott et al. (2020), Lancaster University (CC BY 4.0).
  */
 
 import * as fs from 'fs';
@@ -120,43 +22,80 @@ const OUTPUT_FILE = '../public/dictionary-en_GB.json';
 
 const COPYRIGHT_NOTICE = "Copyright (C) Ben Spiller 2026-present ; Commercial use of this dictionary is not permitted ; See https://github.com/ben-spiller/do-re-major-mnemonics for licensing information about this dictionary and the opensource data used to help created it";
 
+interface WordEntry {
+    word: string;
+    score: number;
+}
+
 // Standard Major System mapping used ONLY for calculating coverage statistics
 const STATS_MAP: Record<string, string> = {
     'D': '1', 'N': '2', 'M': '3', 'R': '4', 'L': '5', 
     'J': '6', 'K': '7', 'F': '8', 'P': '9', 'S': '0'
 };
 
-/**
- * UPDATED PHONETIC MAP:
- * Includes Britfone IPA symbols: 
- * ɹ = R, dʒ = J, tʃ = CH, ʃ = SH, θ = T/D, ð = T/D, etc.
- */
 const PHONETIC_MAP: Record<string, string> = {
-    // T / D
     't': 'D', 'd': 'D', 'θ': 'D', 'ð': 'D', 
-    // N
     'n': 'N', 'ŋ': 'N', 
-    // M
     'm': 'M',
-    // R
     'ɹ': 'R', 'r': 'R',
-    // L
     'l': 'L',
-    // J / CH / SH / ZH
     'dʒ': 'J', 'tʃ': 'J', 'ʃ': 'J', 'ʒ': 'J', 'j': 'J', 
-    // K / G
     'k': 'K', 'ɡ': 'K', 'g': 'K',
-    // F / V
     'f': 'F', 'v': 'F',
-    // P / B
     'p': 'P', 'b': 'P',
-    // S / Z
     's': 'S', 'z': 'S'
 };
 
-interface WordEntry {
-    word: string;
-    score: number;
+/**
+ * Maps Bridge Sounds to the most likely letter clusters in English spelling.
+ * Sorted by length (greedy) so 'ch' is checked before 'c'.
+ */
+const SOUND_TO_LETTERS: Record<string, string[]> = {
+    'D': ['th', 'tt', 'dd', 't', 'd'],
+    'N': ['nn', 'ng', 'kn', 'gn', 'n'],
+    'M': ['mm', 'm'],
+    'R': ['wr', 'rr', 'r'],
+    'L': ['ll', 'l'],
+    'J': ['tch', 'ch', 'sh', 'dg', 'jh', 'j', 'g', 's'],
+    'K': ['ck', 'kk', 'gg', 'qu', 'k', 'g', 'c', 'x'],
+    'F': ['ph', 'ff', 'vv', 'f', 'v'],
+    'P': ['pp', 'bb', 'p', 'b'],
+    'S': ['ss', 'zz', 's', 'z', 'c', 'x']
+};
+
+/**
+ * Dynamically highlights the mnemonic letters by uppercasing them.
+ */
+function highlightMnemonic(word: string, bridgeCode: string): string {
+    let result = word.toLowerCase();
+    let currentPos = 0;
+
+    for (const sound of bridgeCode) {
+        const patterns = SOUND_TO_LETTERS[sound] || [];
+        let bestMatch: { index: number; length: number } | null = null;
+
+        // Find the earliest occurrence of any valid pattern for this sound
+        // starting from the current position.
+        for (const pattern of patterns) {
+            const foundIndex = result.indexOf(pattern, currentPos);
+            if (foundIndex !== -1) {
+                if (bestMatch === null || foundIndex < bestMatch.index) {
+                    bestMatch = { index: foundIndex, length: pattern.length };
+                }
+            }
+        }
+
+        if (bestMatch !== null) {
+            const before = result.substring(0, bestMatch.index);
+            const match = result.substring(bestMatch.index, bestMatch.index + bestMatch.length).toUpperCase();
+            const after = result.substring(bestMatch.index + bestMatch.length);
+            
+            result = before + match + after;
+            // Move currentPos past the match to handle duplicate letters like "PaINTiNG"
+            currentPos = bestMatch.index + bestMatch.length;
+        }
+    }
+    return result;
 }
 
 function parseDataFile(filename: string) {
@@ -164,10 +103,8 @@ function parseDataFile(filename: string) {
     const content = fs.readFileSync(filename, 'utf-8');
     const lines = content.split(/\r?\n/).filter(l => l.trim() !== '');
     if (lines.length === 0) return [];
-
     const delimiter = lines[0].includes('\t') ? '\t' : (lines[0].includes(';') ? ';' : ',');
     const headers = lines[0].split(delimiter).map(h => h.trim().replace(/^"|"$/g, ''));
-    
     return lines.slice(1).map(line => {
         const values = line.split(delimiter).map(v => v.trim().replace(/^"|"$/g, ''));
         const obj: any = { _rawValues: values };
@@ -203,7 +140,7 @@ function runGenerator() {
         });
 
         const bridgeDict: Record<string, WordEntry[]> = {};
-        console.log(`--- Processing IPA Phonetics from: ${INPUT_FILES.britfone}`);
+        console.log(`--- Processing IPA Phonetics: ${INPUT_FILES.britfone}`);
 
         parseDataFile(INPUT_FILES.britfone).forEach(row => {
             counts.britTotal++;
@@ -212,16 +149,12 @@ function runGenerator() {
             if (!rawWord || !phoneticsRaw) return;
 
             const word = rawWord.toLowerCase();
-            
-            // Cleanup IPA: Remove stress markers and length marks
-            const cleanPhonemes = phoneticsRaw
-                .replace(/[ˈˌː]/g, '') // Remove IPA stress/length marks
-                .trim()
-                .split(/\s+/);
+            const cleanPhonemes = phoneticsRaw.replace(/[ˈˌː]/g, '').trim().split(/\s+/);
 
             /**
-             * BRIDGE CODE LOGIC:
-             * Maps cleansed IPA phonemes to the Bridge Code skeleton.
+             * BRIDGE CODE COMMENT:
+             * The bridgeCode represents the consonant skeleton of the word.
+             * Mapping phonetic IPA sounds to a stable uppercase skeleton (e.g., "DK").
              */
             let bridgeCode = "";
             let firstSoundIsConsonant = false;
@@ -259,7 +192,6 @@ function runGenerator() {
             }
         });
 
-        // 3. Finalize and Analyze Coverage
         const finalOutput: any = { "_metadata": COPYRIGHT_NOTICE };
         const coverageStats: Record<number, Set<string>> = {};
         let maxLength = 0;
@@ -274,14 +206,13 @@ function runGenerator() {
             finalOutput[code] = bridgeDict[code]
                 .sort((a, b) => b.score - a.score)
                 .slice(0, 15)
-                .map(e => e.word);
+                .map(e => highlightMnemonic(e.word, code));
         }
 
         const dir = path.dirname(OUTPUT_FILE);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(OUTPUT_FILE, JSON.stringify(finalOutput));
 
-        // 4. Statistics Dashboard
         console.log("\n" + "=".repeat(40));
         console.log("📊 GENERATION STATISTICS");
         console.log("-".repeat(40));
@@ -292,8 +223,18 @@ function runGenerator() {
                 console.log(`Length ${i} Coverage:   ${((count / possible) * 100).toFixed(1)}% (${count}/${possible})`);
             }
         }
+        
         console.log("-".repeat(40));
-        console.log(`📂 Output:              ${OUTPUT_FILE}`);
+        console.log("🧪 KEY VERIFICATION (TOP 5 PER DIGIT)");
+        console.log("-".repeat(40));
+        Object.entries(STATS_MAP).sort((a,b) => a[1].localeCompare(b[1])).forEach(([bridgeChar, digit]) => {
+            const words = (finalOutput[bridgeChar] || []).slice(0, 5).join(', ');
+            console.log(`${digit} (${bridgeChar}): ${words || "EMPTY ❌"}`);
+        });
+
+        const fileSizeKB = Math.round(fs.statSync(OUTPUT_FILE).size / 1024);
+        console.log("-".repeat(40));
+        console.log(`💾 File Size:           ${fileSizeKB} KB`);
         console.log(`⏱️ Execution Time:     ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
         console.log("=".repeat(40));
 
