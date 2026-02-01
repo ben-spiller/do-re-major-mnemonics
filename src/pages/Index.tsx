@@ -8,17 +8,19 @@ import { FavoritesList } from '@/components/FavoritesList';
 import { HowItWorksModal } from '@/components/HowItWorksModal';
 import { useMnemonicMatcher } from '@/hooks/useMnemonicMatcher';
 import { useFavorites } from '@/hooks/useFavorites';
+import { useDictionary } from '@/hooks/useDictionary';
 import { MnemonicSystem } from '@/lib/mnemonicSystems';
-import { Music, Search, Heart } from 'lucide-react';
+import { Music, Search, Heart, Loader2 } from 'lucide-react';
 
 const Index = () => {
   const [digits, setDigits] = useState('');
   const [system, setSystem] = useState<MnemonicSystem>('do-re-major');
   const [activeTab, setActiveTab] = useState('search');
 
+  const { dictionary, isLoading: isDictionaryLoading, error: dictionaryError } = useDictionary();
   const { favorites, addFavorite, addCustomPeg, removeFavorite, isFavorite, getCustomPegs } = useFavorites();
   const customPegs = getCustomPegs(system);
-  const results = useMnemonicMatcher(digits, system, customPegs);
+  const results = useMnemonicMatcher(digits, system, dictionary, customPegs);
 
   const handleFavorite = (words: string[]) => {
     const cleanDigits = digits.replace(/\D/g, '');
@@ -91,13 +93,25 @@ const Index = () => {
 
             {/* Results */}
             <section>
-              <ResultsList
-                results={results}
-                system={system}
-                digits={digits}
-                onFavorite={handleFavorite}
-                isFavorite={checkIsFavorite}
-              />
+              {isDictionaryLoading ? (
+                <div className="flex items-center justify-center py-12 text-muted-foreground">
+                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                  <span>Loading dictionary...</span>
+                </div>
+              ) : dictionaryError ? (
+                <div className="text-center py-12 text-destructive">
+                  <p>Failed to load dictionary</p>
+                  <p className="text-sm text-muted-foreground">{dictionaryError}</p>
+                </div>
+              ) : (
+                <ResultsList
+                  results={results}
+                  system={system}
+                  digits={digits}
+                  onFavorite={handleFavorite}
+                  isFavorite={checkIsFavorite}
+                />
+              )}
             </section>
 
             {/* Mapping Reference */}
