@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 
 /**
  * Standalone script for generating the dictionary. Builds a derived work using  
@@ -24,13 +23,6 @@ import * as fs from 'fs';
  *      https://creativecommons.org/licenses/by/4.0/
  * For non-commercial use only. 
  */
-const INPUT_FILES = {
-    "britfone": "britfone.main.3.0.1.csv",
-    "concreteness": "Concreteness_ratings_Brysbaert_et_al_BRM.txt",
-    "sensorimotor": "Lancaster_sensorimotor_norms_for_39707_words.csv"
-}
-
-const OUTPUT_FILE = '../public/dictionary-en_GB.json';
 
 /*
 Output file format definition:
@@ -108,6 +100,24 @@ function findMnemonics(digits, systemMap, dictionary) {
 */
 
 
+/**
+ * HOW TO RUN:
+ * 1. Ensure Node.js is installed.
+ * 2. Save as 'generate.ts' and run: npx ts-node generate.ts
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+// --- CONFIGURATION ---
+const INPUT_FILES = {
+    "britfone": "britfone.main.3.0.1.csv",
+    "concreteness": "Concreteness_ratings_Brysbaert_et_al_BRM.txt",
+    "sensorimotor": "Lancaster_sensorimotor_norms_for_39707_words.csv"
+};
+
+const OUTPUT_FILE = '../public/dictionary-en_GB.json';
+
 const COPYRIGHT_NOTICE = "Copyright (C) Ben Spiller 2026-present ; Commercial use of this dictionary is not permitted ; See https://github.com/ben-spiller/do-re-major-mnemonics for licensing information about this dictionary and the opensource data used to help created it";
 
 // Standard Major System mapping used ONLY for calculating coverage statistics
@@ -116,14 +126,32 @@ const STATS_MAP: Record<string, string> = {
     'J': '6', 'K': '7', 'F': '8', 'P': '9', 'S': '0'
 };
 
+/**
+ * UPDATED PHONETIC MAP:
+ * Includes Britfone IPA symbols: 
+ * ɹ = R, dʒ = J, tʃ = CH, ʃ = SH, θ = T/D, ð = T/D, etc.
+ */
 const PHONETIC_MAP: Record<string, string> = {
-    'T': 'D', 'D': 'D',
-    'N': 'N', 'M': 'M', 'R': 'R', 'L': 'L',
-    'CH': 'J', 'JH': 'J', 'SH': 'J', 'ZH': 'J',
-    'K': 'K', 'G': 'K',
-    'F': 'F', 'V': 'F',
-    'P': 'P', 'B': 'P',
-    'S': 'S', 'Z': 'S'
+    // T / D
+    't': 'D', 'd': 'D', 'θ': 'D', 'ð': 'D', 
+    // N
+    'n': 'N', 'ŋ': 'N', 
+    // M
+    'm': 'M',
+    // R
+    'ɹ': 'R', 'r': 'R',
+    // L
+    'l': 'L',
+    // J / CH / SH / ZH
+    'dʒ': 'J', 'tʃ': 'J', 'ʃ': 'J', 'ʒ': 'J', 'j': 'J', 
+    // K / G
+    'k': 'K', 'ɡ': 'K', 'g': 'K',
+    // F / V
+    'f': 'F', 'v': 'F',
+    // P / B
+    'p': 'P', 'b': 'P',
+    // S / Z
+    's': 'S', 'z': 'S'
 };
 
 interface WordEntry {
@@ -156,7 +184,6 @@ function runGenerator() {
         const rankingData: Record<string, { concreteness: number, visual: number, haptic: number }> = {};
         let counts = { conc: 0, sensor: 0, britTotal: 0, britMapped: 0 };
 
-        // 1. Load Ranking Data
         parseDataFile(INPUT_FILES.concreteness).forEach(row => {
             const word = (row.Word || "").toLowerCase();
             const score = parseFloat(row['Conc.M']);
@@ -165,7 +192,6 @@ function runGenerator() {
                 counts.conc++;
             }
         });
-        console.log(`    ✅ Loaded ${counts.conc} concreteness ratings.`);
 
         parseDataFile(INPUT_FILES.sensorimotor).forEach(row => {
             const word = (row.Word || "").toLowerCase();
@@ -175,10 +201,10 @@ function runGenerator() {
                 counts.sensor++;
             }
         });
-        console.log(`    ✅ Matched ${counts.sensor} sensorimotor ratings.`);
 
-        // 2. Process Phonetics
         const bridgeDict: Record<string, WordEntry[]> = {};
+        console.log(`--- Processing IPA Phonetics from: ${INPUT_FILES.britfone}`);
+
         parseDataFile(INPUT_FILES.britfone).forEach(row => {
             counts.britTotal++;
             const rawWord = row['Word'] || row['word'] || row._rawValues[0];
@@ -186,21 +212,23 @@ function runGenerator() {
             if (!rawWord || !phoneticsRaw) return;
 
             const word = rawWord.toLowerCase();
-            const phonetics = phoneticsRaw.trim().split(/\s+/);
+            
+            // Cleanup IPA: Remove stress markers and length marks
+            const cleanPhonemes = phoneticsRaw
+                .replace(/[ˈˌː]/g, '') // Remove IPA stress/length marks
+                .trim()
+                .split(/\s+/);
 
             /**
              * BRIDGE CODE LOGIC:
-             * A Bridge Code is an intermediate phonetic string (e.g., "DK") that 
-             * represents the consonant skeleton of a word. By storing "DK" 
-             * instead of "17", we can dynamically map the same data to 
-             * different systems (Major vs. Do-Re-Major) at runtime.
+             * Maps cleansed IPA phonemes to the Bridge Code skeleton.
              */
             let bridgeCode = "";
             let firstSoundIsConsonant = false;
             let foundFirstConsonant = false;
 
-            for (let i = 0; i < phonetics.length; i++) {
-                const sound = phonetics[i].replace(/[0-9]/g, '').toUpperCase();
+            for (let i = 0; i < cleanPhonemes.length; i++) {
+                const sound = cleanPhonemes[i];
                 const mapped = PHONETIC_MAP[sound];
                 if (mapped) {
                     bridgeCode += mapped;
@@ -216,24 +244,12 @@ function runGenerator() {
 
             const norms = rankingData[word] || { concreteness: 1.5, visual: 1.5, haptic: 1.5 };
             let score = (norms.concreteness * 5) + (norms.visual * 2) + (norms.haptic * 3);
-            
-            // PREFERENCE 1: Start with the correct sound
             if (firstSoundIsConsonant) score += 100;
 
-            // PREFERENCE 2: Spelling-Phonetic Match
-            // We strip vowels (including 'y' as it acts as a vowel here) to find spelling consonants.
-            // This penalizes words like "Teeth" (T, T, H in spelling vs 1 sound) 
-            // or "Door" (D, R in spelling vs 1 sound in non-rhotic).
             const spellingConsonants = word.replace(/[aeiouy]/g, '').length;
             const mismatchPenalty = Math.abs(spellingConsonants - bridgeCode.length);
-            
-            if (mismatchPenalty === 0) {
-                score += 30; // Boost perfect phonetic matches (e.g., "Toe")
-            } else {
-                score -= (mismatchPenalty * 25); // Heavy penalty for ambiguous spellings
-            }
+            score += (mismatchPenalty === 0) ? 30 : -(mismatchPenalty * 25);
 
-            // Other penalties
             if (bridgeCode.endsWith('R')) score -= 15;
             if (word.length <= 2) score -= 10;
 
@@ -246,11 +262,12 @@ function runGenerator() {
         // 3. Finalize and Analyze Coverage
         const finalOutput: any = { "_metadata": COPYRIGHT_NOTICE };
         const coverageStats: Record<number, Set<string>> = {};
+        let maxLength = 0;
 
         for (const code in bridgeDict) {
             const len = code.length;
+            if (len > maxLength) maxLength = len;
             if (!coverageStats[len]) coverageStats[len] = new Set();
-            
             const digits = code.split('').map(c => STATS_MAP[c]).join('');
             coverageStats[len].add(digits);
 
@@ -260,23 +277,23 @@ function runGenerator() {
                 .map(e => e.word);
         }
 
+        const dir = path.dirname(OUTPUT_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(OUTPUT_FILE, JSON.stringify(finalOutput));
 
         // 4. Statistics Dashboard
         console.log("\n" + "=".repeat(40));
         console.log("📊 GENERATION STATISTICS");
         console.log("-".repeat(40));
-        
-        [1, 2, 3].forEach(len => {
-            const count = coverageStats[len]?.size || 0;
-            const possible = Math.pow(10, len);
-            const percent = ((count / possible) * 100).toFixed(1);
-            console.log(`Length ${len} Coverage:   ${percent}% (${count}/${possible})`);
-        });
-
-        const fileSizeKB = Math.round(fs.statSync(OUTPUT_FILE).size / 1024);
+        for (let i = 1; i <= maxLength; i++) {
+            const count = coverageStats[i]?.size || 0;
+            const possible = Math.pow(10, i);
+            if (count > 0 || i <= 3) {
+                console.log(`Length ${i} Coverage:   ${((count / possible) * 100).toFixed(1)}% (${count}/${possible})`);
+            }
+        }
         console.log("-".repeat(40));
-        console.log(`💾 File Size:           ${fileSizeKB} KB`);
+        console.log(`📂 Output:              ${OUTPUT_FILE}`);
         console.log(`⏱️ Execution Time:     ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
         console.log("=".repeat(40));
 
