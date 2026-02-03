@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import { MnemonicSystem, mnemonicSystems } from '@/lib/mnemonicSystems';
 import { Favorite } from '@/hooks/useFavorites';
+import { Dictionary, findWordsForDigits } from '@/lib/dictionaryService';
 import { 
-  Dictionary, 
-  findWordsForDigits, 
-  findPrefixMatches as findDictPrefixMatches,
-  digitsToBridgeCode
-} from '@/lib/dictionaryService';
+  findOptimalCombinations, 
+  findPartialMatches, 
+  DijkstraResult 
+} from '@/lib/dijkstraWordMatcher';
 
 export interface MatchResult {
   words: string[];
@@ -111,7 +111,19 @@ function diversifyResults(results: MatchResult[], maxResults: number): MatchResu
   return diversified;
 }
 
-// Find optimal word combinations using dynamic programming
+// Convert Dijkstra results to MatchResults
+function convertToMatchResults(dijkstraResults: DijkstraResult[]): MatchResult[] {
+  return dijkstraResults.map((result, index) => ({
+    words: result.words,
+    digits: result.digits,
+    digitsCovered: result.digitsCovered,
+    isFullMatch: result.isFullMatch,
+    combinedFrequency: result.totalWeight + index * 0.01, // Use weight as frequency proxy
+    isCustomPeg: result.isCustomPeg,
+  }));
+}
+
+// Find word combinations using Dijkstra's algorithm
 function findWordCombinations(
   targetDigits: string,
   dictionary: Dictionary,
@@ -124,7 +136,7 @@ function findWordCombinations(
   const results: MatchResult[] = [];
   const seen = new Set<string>();
   
-  // First, check for custom pegs that match
+  // First, check for exact custom peg matches (highest priority)
   for (const peg of customPegs) {
     if (peg.digits === targetDigits) {
       const key = `peg:${peg.words.join('+')}`;
@@ -142,9 +154,9 @@ function findWordCombinations(
     }
   }
   
-  // Then, find exact single-word matches from dictionary
+  // Find exact single-word matches from dictionary (high priority)
   const exactWords = findWordsForDigits(dictionary, targetDigits, system);
-  for (const word of exactWords.slice(0, 8)) {
+  for (const word of exactWords.slice(0, 5)) {
     const key = word;
     if (!seen.has(key)) {
       seen.add(key);
@@ -153,146 +165,70 @@ function findWordCombinations(
         digits: targetDigits,
         digitsCovered: Array.from({ length: targetDigits.length }, (_, i) => i),
         isFullMatch: true,
-        combinedFrequency: exactWords.indexOf(word), // Lower index = higher quality
+        combinedFrequency: exactWords.indexOf(word),
       });
     }
   }
   
-  // Build a map of custom peg words for quick lookup during combinations
-  const pegDigitsMap = new Map<string, { word: string; digits: string }>();
-  for (const peg of customPegs) {
-    if (targetDigits.startsWith(peg.digits) && peg.words.length === 1) {
-      pegDigitsMap.set(peg.digits, { word: peg.words[0], digits: peg.digits });
+  // Use Dijkstra to find optimal combinations
+  const dijkstraResults = findOptimalCombinations(
+    targetDigits, 
+    dictionary, 
+    system, 
+    customPegs, 
+    50 // Abort after 50 matches
+  );
+  
+  // Convert and add Dijkstra results (skip single-word exact matches we already have)
+  for (const result of dijkstraResults) {
+    if (result.words.length === 1 && seen.has(result.words[0])) continue;
+    
+    const key = result.words.join('+');
+    if (!seen.has(key)) {
+      seen.add(key);
+      results.push({
+        words: result.words,
+        digits: result.digits,
+        digitsCovered: result.digitsCovered,
+        isFullMatch: result.isFullMatch,
+        combinedFrequency: result.totalWeight + results.length * 0.01,
+        isCustomPeg: result.isCustomPeg,
+      });
     }
   }
   
-  // Get all prefix matches from dictionary for combination building
-  const allPrefixMatches = findDictPrefixMatches(dictionary, targetDigits, system);
-  
-  // Build a map for quick lookup: digits -> words
-  const prefixWordMap = new Map<string, string[]>();
-  for (const match of allPrefixMatches) {
-    if (!prefixWordMap.has(match.digits)) {
-      prefixWordMap.set(match.digits, []);
-    }
-    prefixWordMap.get(match.digits)!.push(...match.words.slice(0, 3)); // Take top 3 per bridge code
-  }
-  
-  // Then find combinations using greedy approach
-  const findCombinationsRecursive = (
-    remaining: string,
-    startIndex: number,
-    currentWords: string[],
-    currentFrequency: number,
-    hasCustomPeg: boolean,
-    depth: number = 0
-  ) => {
-    if (remaining.length === 0) {
-      const key = currentWords.slice().sort().join('+');
+  // Add partial matches if we don't have enough full matches
+  if (results.filter(r => r.isFullMatch).length < maxResults) {
+    const partialResults = findPartialMatches(targetDigits, dictionary, system, customPegs, 10);
+    const convertedPartials = convertToMatchResults(partialResults);
+    
+    for (const partial of convertedPartials) {
+      const key = `partial:${partial.words.join('+')}`;
       if (!seen.has(key)) {
         seen.add(key);
-        results.push({
-          words: [...currentWords],
-          digits: targetDigits,
-          digitsCovered: Array.from({ length: targetDigits.length }, (_, i) => i),
-          isFullMatch: true,
-          combinedFrequency: hasCustomPeg ? currentFrequency - 500 : currentFrequency,
-          isCustomPeg: hasCustomPeg,
-        });
-      }
-      return;
-    }
-    
-    if (depth > 4 || results.length >= maxResults * 3) return;
-    
-    // First try custom pegs that match the remaining digits
-    for (const [pegDigits, pegData] of pegDigitsMap) {
-      if (remaining.startsWith(pegDigits)) {
-        findCombinationsRecursive(
-          remaining.slice(pegDigits.length),
-          startIndex + pegDigits.length,
-          [...currentWords, pegData.word],
-          currentFrequency - 500,
-          true,
-          depth + 1
-        );
+        results.push(partial);
       }
     }
-    
-    // Try all prefix lengths from longest to shortest
-    for (let len = remaining.length; len >= 1; len--) {
-      const prefix = remaining.slice(0, len);
-      const words = prefixWordMap.get(prefix);
-      if (words && words.length > 0) {
-        // Take first few words to avoid explosion
-        for (const word of words.slice(0, 3)) {
-          findCombinationsRecursive(
-            remaining.slice(len),
-            startIndex + len,
-            [...currentWords, word],
-            currentFrequency + words.indexOf(word),
-            hasCustomPeg,
-            depth + 1
-          );
-        }
-      }
-    }
-  };
+  }
   
-  findCombinationsRecursive(targetDigits, 0, [], 0, false, 0);
-  
-  // Sort results: custom pegs first, then fewer words, then by combined frequency
+  // Sort: custom pegs first, then full matches, then by weight (fewer = better)
   results.sort((a, b) => {
     // Custom pegs always first
     if (a.isCustomPeg && !b.isCustomPeg) return -1;
     if (!a.isCustomPeg && b.isCustomPeg) return 1;
     
+    // Full matches before partial
+    if (a.isFullMatch && !b.isFullMatch) return -1;
+    if (!a.isFullMatch && b.isFullMatch) return 1;
+    
+    // Fewer words preferred
     if (a.words.length !== b.words.length) {
       return a.words.length - b.words.length;
     }
+    
+    // Lower frequency/weight is better
     return a.combinedFrequency - b.combinedFrequency;
   });
-  
-  // Add some partial matches for variety
-  if (results.length < maxResults) {
-    // Check for partial custom pegs
-    for (const peg of customPegs) {
-      if (targetDigits.startsWith(peg.digits) && peg.digits.length < targetDigits.length) {
-        const key = `partial-peg:${peg.words.join('+')}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push({
-            words: peg.words,
-            digits: peg.digits,
-            digitsCovered: Array.from({ length: peg.digits.length }, (_, i) => i),
-            isFullMatch: false,
-            combinedFrequency: -500,
-            isCustomPeg: true,
-          });
-        }
-      }
-    }
-    
-    // Add partial matches from dictionary
-    for (const match of allPrefixMatches.slice(0, 15)) {
-      if (results.length >= maxResults * 2) break;
-      if (match.digits.length >= targetDigits.length) continue; // Skip full matches
-      
-      for (const word of match.words.slice(0, 2)) {
-        const key = `partial:${word}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push({
-            words: [word],
-            digits: match.digits,
-            digitsCovered: Array.from({ length: match.digits.length }, (_, i) => i),
-            isFullMatch: false,
-            combinedFrequency: match.words.indexOf(word),
-          });
-        }
-      }
-    }
-  }
   
   // Diversify results to avoid similar words
   return diversifyResults(results, maxResults);
