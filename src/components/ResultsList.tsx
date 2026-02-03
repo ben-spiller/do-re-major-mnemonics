@@ -2,6 +2,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MatchResult } from '@/hooks/useMnemonicMatcher';
 import { MnemonicSystem } from '@/lib/mnemonicSystems';
+import { HighlightedWords } from '@/components/HighlightedWord';
 import { Heart, Copy, Check, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -126,8 +127,8 @@ function ResultCard({
     <Card className={`transition-all hover:shadow-md ${isPerfect ? 'border-primary/50 bg-primary/5' : ''}`}>
       <CardContent className="p-3 flex items-center justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="font-medium text-lg truncate">
-            {result.words.join(' + ')}
+          <p className="text-lg truncate">
+            <HighlightedWords words={result.words} />
           </p>
           <p className="text-xs text-muted-foreground font-mono">
             {result.digits}
