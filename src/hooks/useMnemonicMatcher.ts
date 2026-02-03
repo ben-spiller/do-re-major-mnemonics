@@ -156,7 +156,7 @@ function findWordCombinations(
   
   // Find exact single-word matches from dictionary (high priority)
   const exactWords = findWordsForDigits(dictionary, targetDigits, system);
-  for (const word of exactWords.slice(0, 5)) {
+  for (const word of exactWords.slice(0, 15)) {
     const key = word;
     if (!seen.has(key)) {
       seen.add(key);

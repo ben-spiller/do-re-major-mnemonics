@@ -80,8 +80,8 @@ function buildWordMap(
       const words = dictionary[bridgeCode];
       
       if (words && words.length > 0) {
-        // Take top 5 words for each bridge code to limit search space
-        for (const word of words.slice(0, 5)) {
+        // Take top 15 words for each bridge code to provide more variety
+        for (const word of words.slice(0, 15)) {
           matches.push({
             word,
             digits: digitSlice,
