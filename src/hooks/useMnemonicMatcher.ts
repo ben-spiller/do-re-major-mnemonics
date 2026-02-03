@@ -63,26 +63,13 @@ export function wordToDigits(word: string, system: MnemonicSystem): string {
   return digits;
 }
 
-// Check if two words are too similar (share the same root/stem)
+// Check if two words are exactly the same (only filter true duplicates)
 function areSimilar(word1: string, word2: string): boolean {
   const w1 = word1.toLowerCase();
   const w2 = word2.toLowerCase();
   
-  // Exact match
-  if (w1 === w2) return true;
-  
-  // One is prefix of other (e.g., "run" and "running")
-  if (w1.startsWith(w2) || w2.startsWith(w1)) return true;
-  
-  // Check common suffix variations
-  const suffixes = ['s', 'es', 'ed', 'ing', 'er', 'est', 'ly', 'tion', 'ness'];
-  for (const suffix of suffixes) {
-    const base1 = w1.endsWith(suffix) ? w1.slice(0, -suffix.length) : w1;
-    const base2 = w2.endsWith(suffix) ? w2.slice(0, -suffix.length) : w2;
-    if (base1 === base2 || base1 === w2 || base2 === w1) return true;
-  }
-  
-  return false;
+  // Only filter exact matches - allow variations like run/running
+  return w1 === w2;
 }
 
 // Filter results to avoid similar words
@@ -246,7 +233,7 @@ export function useMnemonicMatcher(
     const cleanDigits = digits.replace(/\D/g, '');
     if (!cleanDigits) return [];
     
-    return findWordCombinations(cleanDigits, dictionary, system, customPegs, 20);
+    return findWordCombinations(cleanDigits, dictionary, system, customPegs, 50);
   }, [digits, system, dictionary, customPegs]);
   
   return results;
