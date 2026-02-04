@@ -42,23 +42,11 @@ export function SplitResultsList({
     );
   }
 
-  // Filter out rows with no matches
-  const rowsWithMatches = splitRows.filter(row =>
-    row.segments.some(seg => seg.matches.length > 0)
-  );
-
-  if (rowsWithMatches.length === 0) {
-    return (
-      <div className="text-center py-12 text-muted-foreground">
-        <p className="text-lg">No matches found for "{cleanDigits}"</p>
-        <p className="text-sm mt-2">Try a shorter number sequence</p>
-      </div>
-    );
-  }
+  // Rows are already filtered by buildSplitRows - only rows where ALL segments have matches are included
 
   return (
     <div className="space-y-4">
-      {rowsWithMatches.map((splitRow, idx) => (
+      {splitRows.map((splitRow) => (
         <SplitRow
           key={splitRow.pattern}
           splitRow={splitRow}
