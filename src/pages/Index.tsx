@@ -3,10 +3,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NumberInput } from '@/components/NumberInput';
 import { ModeToggle } from '@/components/ModeToggle';
 import { MappingChart } from '@/components/MappingChart';
-import { ResultsList } from '@/components/ResultsList';
+import { SplitResultsList } from '@/components/SplitResultsList';
 import { FavoritesList } from '@/components/FavoritesList';
 import { HowItWorksModal } from '@/components/HowItWorksModal';
-import { useMnemonicMatcher } from '@/hooks/useMnemonicMatcher';
 import { useFavorites } from '@/hooks/useFavorites';
 import { useDictionary } from '@/hooks/useDictionary';
 import { MnemonicSystem } from '@/lib/mnemonicSystems';
@@ -20,25 +19,24 @@ const Index = () => {
   const { dictionary, isLoading: isDictionaryLoading, error: dictionaryError } = useDictionary();
   const { favorites, addFavorite, addCustomPeg, removeFavorite, isFavorite, getCustomPegs } = useFavorites();
   const customPegs = getCustomPegs(system);
-  const results = useMnemonicMatcher(digits, system, dictionary, customPegs);
 
-  const handleFavorite = (words: string[]) => {
-    const cleanDigits = digits.replace(/\D/g, '');
-    if (isFavorite(cleanDigits, words, system)) {
+  // Handler for favoriting individual segment matches
+  const handleSegmentFavorite = (segmentDigits: string, word: string) => {
+    if (isFavorite(segmentDigits, [word], system)) {
       const fav = favorites.find(
-        f => f.digits === cleanDigits && 
-             f.words.join('+') === words.join('+') &&
+        f => f.digits === segmentDigits && 
+             f.words.length === 1 &&
+             f.words[0] === word &&
              f.system === system
       );
       if (fav) removeFavorite(fav.id);
     } else {
-      addFavorite({ digits: cleanDigits, words, system });
+      addFavorite({ digits: segmentDigits, words: [word], system });
     }
   };
 
-  const checkIsFavorite = (words: string[]) => {
-    const cleanDigits = digits.replace(/\D/g, '');
-    return isFavorite(cleanDigits, words, system);
+  const checkSegmentFavorite = (segmentDigits: string, word: string) => {
+    return isFavorite(segmentDigits, [word], system);
   };
 
   return (
@@ -104,12 +102,13 @@ const Index = () => {
                   <p className="text-sm text-muted-foreground">{dictionaryError}</p>
                 </div>
               ) : (
-                <ResultsList
-                  results={results}
-                  system={system}
+                <SplitResultsList
                   digits={digits}
-                  onFavorite={handleFavorite}
-                  isFavorite={checkIsFavorite}
+                  dictionary={dictionary}
+                  system={system}
+                  customPegs={customPegs}
+                  onFavorite={handleSegmentFavorite}
+                  isFavorite={checkSegmentFavorite}
                 />
               )}
             </section>
