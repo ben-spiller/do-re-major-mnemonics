@@ -58,34 +58,68 @@ export function getMatchesForDigits(
 
 /**
  * Build split rows with segment matches for display.
+ * Filters out rows where any segment has no matches.
+ * Stops adding rows once total word combinations exceeds maxCombinations.
  */
 export function buildSplitRows(
   digits: string,
   dictionary: Dictionary,
   system: MnemonicSystem,
   customPegs: Favorite[],
-  maxSplits: number = 15
+  maxCombinations: number = 50
 ): SplitRow[] {
   if (!digits) return [];
   
-  const displaySplits = getDisplaySplits(digits, maxSplits);
+  // Get all possible splits (no pre-limit, we'll filter as we go)
+  const allSplits = getDisplaySplits(digits, 100);
   
-  return displaySplits.map(split => {
-    const segments: Segment[] = split.parts.map(part => {
+  const result: SplitRow[] = [];
+  let totalCombinations = 0;
+  
+  for (const split of allSplits) {
+    // Build segments for this split
+    const segments: Segment[] = [];
+    let allHaveMatches = true;
+    let minCombinationsForRow = 1;
+    
+    for (const part of split.parts) {
       const matches = getMatchesForDigits(part, dictionary, system, customPegs);
-      return {
+      
+      if (matches.length === 0) {
+        allHaveMatches = false;
+        break;
+      }
+      
+      // Track minimum combinations (product of match counts per segment)
+      minCombinationsForRow *= Math.min(matches.length, 5); // Use displayed count
+      
+      segments.push({
         digits: part,
         matches: matches.slice(0, 5), // Top 5 for display
         hasMore: matches.length > 5,
-      };
-    });
+      });
+    }
     
-    return {
+    // Skip rows where any segment has no matches
+    if (!allHaveMatches) {
+      continue;
+    }
+    
+    // Check if adding this row would exceed the limit
+    if (totalCombinations + minCombinationsForRow > maxCombinations && result.length > 0) {
+      break;
+    }
+    
+    totalCombinations += minCombinationsForRow;
+    
+    result.push({
       pattern: split.pattern,
       parts: split.parts,
       segments,
-    };
-  });
+    });
+  }
+  
+  return result;
 }
 
 /**

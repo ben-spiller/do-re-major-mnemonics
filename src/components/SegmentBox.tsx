@@ -67,20 +67,42 @@ export function SegmentBox({
             )}
           </div>
 
-          {/* Collapsed view: Top 5 matches */}
+          {/* Collapsed view: Top 5 matches with favorite buttons */}
           {!isExpanded && (
             <div className="space-y-1">
               {segment.matches.length === 0 ? (
                 <p className="text-xs text-muted-foreground italic">No matches</p>
               ) : (
-                segment.matches.map((match, idx) => (
-                  <div key={idx} className="text-sm truncate">
-                    <HighlightedWord word={match.word} />
-                    {match.isCustomPeg && (
-                      <span className="ml-1 text-xs text-primary">★</span>
-                    )}
-                  </div>
-                ))
+                segment.matches.map((match, idx) => {
+                  const favorited = isFavorite(segment.digits, match.word);
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between group hover:bg-muted/50 rounded px-1 -mx-1"
+                    >
+                      <div className="text-sm truncate flex-1">
+                        <HighlightedWord word={match.word} />
+                        {match.isCustomPeg && (
+                          <span className="ml-1 text-xs text-primary">★</span>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-6 w-6 transition-opacity ${
+                          favorited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                        }`}
+                        onClick={() => onFavorite(segment.digits, match.word)}
+                      >
+                        <Heart
+                          className={`h-3 w-3 ${
+                            favorited ? 'fill-red-500 text-red-500' : ''
+                          }`}
+                        />
+                      </Button>
+                    </div>
+                  );
+                })
               )}
               {segment.hasMore && !isExpanded && (
                 <CollapsibleTrigger asChild>
@@ -95,33 +117,36 @@ export function SegmentBox({
           {/* Expanded view: All matches with favorite buttons */}
           <CollapsibleContent>
             <div className="space-y-1 max-h-64 overflow-y-auto">
-              {displayMatches.map((match, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between group hover:bg-muted/50 rounded px-1 -mx-1"
-                >
-                  <div className="text-sm truncate flex-1">
-                    <HighlightedWord word={match.word} />
-                    {match.isCustomPeg && (
-                      <span className="ml-1 text-xs text-primary">★</span>
-                    )}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => onFavorite(segment.digits, match.word)}
+              {displayMatches.map((match, idx) => {
+                const favorited = isFavorite(segment.digits, match.word);
+                return (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between group hover:bg-muted/50 rounded px-1 -mx-1"
                   >
-                    <Heart
-                      className={`h-3 w-3 ${
-                        isFavorite(segment.digits, match.word)
-                          ? 'fill-red-500 text-red-500'
-                          : ''
+                    <div className="text-sm truncate flex-1">
+                      <HighlightedWord word={match.word} />
+                      {match.isCustomPeg && (
+                        <span className="ml-1 text-xs text-primary">★</span>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-6 w-6 transition-opacity ${
+                        favorited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                       }`}
-                    />
-                  </Button>
-                </div>
-              ))}
+                      onClick={() => onFavorite(segment.digits, match.word)}
+                    >
+                      <Heart
+                        className={`h-3 w-3 ${
+                          favorited ? 'fill-red-500 text-red-500' : ''
+                        }`}
+                      />
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           </CollapsibleContent>
         </CardContent>
