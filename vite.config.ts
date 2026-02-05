@@ -20,4 +20,15 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+
+  server: {
+    proxy: {
+      // String shorthand for simple cases
+      '/dictionary': {
+        target: 'http://localhost:5000', // The URL of your local backend
+        changeOrigin: true,
+        secure: false,
+      }
+    }
+  }
 }));

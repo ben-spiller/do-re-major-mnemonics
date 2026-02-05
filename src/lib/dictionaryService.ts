@@ -51,7 +51,8 @@ export async function loadDictionary(): Promise<Dictionary> {
     return loadPromise;
   }
 
-  loadPromise = fetch('/dictionary-en_GB.json')
+  const baseUrl = import.meta.env.BASE_URL;
+  loadPromise = fetch(`${baseUrl}/dictionary-en_GB.json`)
     .then(response => {
       if (!response.ok) {
         throw new Error(`Failed to load dictionary: ${response.statusText}`);
